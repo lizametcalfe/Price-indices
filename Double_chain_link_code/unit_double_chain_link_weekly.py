@@ -1,15 +1,12 @@
-#Author: Liz Metcalfe
-#Date: 4/5/2016
-#Aim: Double chain link prices calculated to the product level.
-#The same weights are used as for the Consumer Price Index and are available online.
-
-
 import pandas as pd
 import numpy as np
 
-unit2014= pd.read_csv(".../unit2014.csv")
-unit2015= pd.read_csv(".../unit2015.csv")
-unit2016= pd.read_csv(".../unit2016.csv")
+unit2014= pd.read_csv("/home/mint/my-data/Web_scraped_CPI/Code_upgrade/data/unitweekly2014.csv")
+unit2014 = unit2014[unit2014["period"]!=201423]
+unit2015= pd.read_csv("/home/mint/my-data/Web_scraped_CPI/Code_upgrade/data/unitweekly2015.csv")
+unit2016= pd.read_csv("/home/mint/my-data/Web_scraped_CPI/Code_upgrade/data/unitweekly2016.csv")
+
+#rebase to June 2014 if neccessary
 
 #rebase to June 2014 if neccessary
 def rebasetojune(data,datevar,basedate,index):
@@ -18,17 +15,23 @@ def rebasetojune(data,datevar,basedate,index):
     data["unit"] = data["unit"].apply(lambda x: (x/basedate)*100)
     return data    
 
-unit14=[]
-unit14.append(unit2014.groupby('ons_item_number').apply(lambda L: rebasetojune(L,"period",201406,"unit")))
 
-unit14 = np.concatenate(unit14, axis=0)  # axis = 1 would append things as new columns
-unit14=pd.DataFrame(unit14)
-unit2014.columns=["Unnamed: 0",  "i", "ons_item_number", "period","unit"]
+def runthrough(data,basedate,date, index):
+    a = []
+    for i in np.unique(data["ons_item_number"]):
+        a.append(rebasetojune(data[data["ons_item_number"] == i],  date, basedate, index))
+    aa = np.concatenate(a, axis=0)  # axis = 1 would append things as new columns
+    aa=pd.DataFrame(aa)
+    aa.columns=["i","ii",  "ons_item_number", "period", "unit"]
+    del aa["ii"]
+    return aa
+
+unit2014 = runthrough(unit2014,201424,"period","unit")
 
 
 #weight up item level
-weights=pd.read_excel('.../weights.xls')
-weightsupper = pd.read_excel('.../Weights_upper.xls')
+weights=pd.read_excel('/home/mint/my-data/Web_scraped_CPI/Code_upgrade/New_version/Copy of weights-lager.xls')
+weightsupper = pd.read_excel('/home/mint/my-data/Web_scraped_CPI/Code_upgrade/New_version/Weights_upper_unit.xls')
 def aggregation(indices, priceindices,weights,frequency, weights14,weights15, weights16, agglevel,weightjoinvar):
     data=pd.merge(indices,weights,left_on=weightjoinvar,right_on="join",how="outer").reset_index()
     index=data['index']
@@ -53,9 +56,6 @@ def aggregation(indices, priceindices,weights,frequency, weights14,weights15, we
     b=data.groupby(by=[agglevel,"period"])["weighted_index"].sum()
     return b.reset_index()
 
-unit2014agg = aggregation(unit2014, "unit",weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
-unit2015agg = aggregation(unit2015, "unit",weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
-unit2016agg = aggregation(unit2016, "unit",weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
 
 
 #double chain link in two parts
@@ -82,23 +82,24 @@ def itemchain(df,rebaseto,baseperiod):
         df = "Wrong"
     return df
 
-def doublechainlink(originalyear, chainedyear,chainedyear2, basedate,basedate2,freq):
-    originalyear = aggregation(originalyear, "unit",weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
-    chainedyear = aggregation(chainedyear, "unit",weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
-    chainedyear2 = aggregation(chainedyear2, "unit",weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
+
+def doublechainlink(originalyear, chainedyear,chainedyear2, basedate,basedate2,freq,priceindex):
+    originalyear = aggregation(originalyear, priceindex,weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
+    chainedyear = aggregation(chainedyear, priceindex,weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
+    chainedyear2 = aggregation(chainedyear2, priceindex,weights,"month","weight_2_2014","weight_2_2015","weight_2_2016","level_2","ons_item_number")
     #single chain link for new year added
     a14=[]
     a14.append(originalyear.groupby('level_2').apply(lambda L: itemchain(L,"Dec",basedate)))
     a14 = np.concatenate(a14, axis=0)
     a14 = pd.DataFrame(a14)
-    a14.columns=["Unnamed: 0","Unnamed: 1",  "level_2", "period","unit","year"]
+    a14.columns=["Unnamed: 0","Unnamed: 1",  "level_2", "period",priceindex,"year"]
     a15=[]
     a15.append(chainedyear.groupby('level_2').apply(lambda L: itemchain(L,"Dec",basedate2)))
     a15 = np.concatenate(a15, axis=0)
     a15 = pd.DataFrame(a15)
-    a15.columns=["Unnamed: 0","Unnamed: 1",  "level_2", "period","unit","year"]
-    unit2014agg2 = aggregation(a14, "unit",weightsupper,freq,"weight_1_2014","weight_1_2015","weight_1_2016","level_3","level_2")
-    unit2015agg2 = aggregation(a15, "unit",weightsupper,freq,"weight_1_2014","weight_1_2015","weight_1_2016","level_3","level_2")
+    a15.columns=["Unnamed: 0","Unnamed: 1",  "level_2", "period",priceindex,"year"]
+    unit2014agg2 = aggregation(a14, priceindex,weightsupper,freq,"weight_1_2014","weight_1_2015","weight_1_2016","level_3","level_2")
+    unit2015agg2 = aggregation(a15, priceindex,weightsupper,freq,"weight_1_2014","weight_1_2015","weight_1_2016","level_3","level_2")
     unit2016agg2 = aggregation(chainedyear2, "weighted_index",weightsupper,freq,"weight_1_2014","weight_1_2015","weight_1_2016","level_3","level_2")
     unit2015agg2 = unit2015agg2[unit2015agg2["period"]!=basedate]
     unit2016agg2 = unit2016agg2[unit2016agg2["period"]!=basedate2]
@@ -114,9 +115,13 @@ def doublechainlink(originalyear, chainedyear,chainedyear2, basedate,basedate2,f
     aaa16 = np.concatenate(aaa16, axis=0)
     aaa16 = pd.DataFrame(aaa16)
     aaa16.columns=["Unnamed: 0", "Unnamed: 1","Unnamed: 2", "Unnamed: 3", "level_3", "period","weighted_index"]
+    del aaa16["Unnamed: 3"]
+    del aaa16["Unnamed: 2"]
+    del aaa16["Unnamed: 1"]
+    del aaa16["Unnamed: 0"]
     return aaa16
 
-upto2016 = doublechainlink(unit2014, unit2015,unit2016, 201501,201601,"month")
 
-#save aggregated indices
-upto2016.to_csv(".../chainedunit.csv",encoding='utf-8')
+upto2016 = doublechainlink(unit2014, unit2015,unit2016, 201501,201601,"month","unit")
+
+upto2016.to_csv("/home/mint/my-data/Web_scraped_CPI/Code_upgrade/data/unitdoublechainedweek.csv")
